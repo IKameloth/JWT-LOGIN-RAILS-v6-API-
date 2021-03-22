@@ -1,41 +1,33 @@
 class ApplicationController < ActionController::API
-  before_action :authorized
+  require 'json_web_token'
 
-  def encode_token(payload)
-    JWT.encode(payload, 'elSecret')
-  end
+  protected
 
-  def auth_header
-    # { Authorization: 'Bearer <token>' }
-    request.headers['Authorization']
-  end
-
-  def decoded_token
-    if auth_header
-      token = auth_header.split(' ')[1]
-      begin
-        JWT.decode(token, 'elSecret', true, algorithm: 'HS256')
-      rescue => exception
-        nil
-      end
+  def authenticate_request!
+    if !payload || !JsonWebToken.valid_payload(payload.first)
+      return invalid_authentication
     end
+
+    load_current_user!
+    invalid_authentication unless @current_user
   end
 
-  def logged_in_user
-    if decoded_token
-      user_id = decoded_token[0]['user_id']
-      @user = User.find_by(id: user_id)
-    end
+  def invalid_authentication
+    render json: { error: "Invalid Request" }, status: :unauthorized
   end
 
-  def logged_in?
-    !!logged_in_user
+  private
+
+  def payload
+    auth_header = request.headers['Authorization']
+    token = auth_header.split(' ').last
+    JsonWebToken.decode(token)
+  rescue
+    nil
   end
 
-  def authorized
-    render json: {
-      message: "Please log in"
-    },
-    status: :unauthorized unless logged_in?
+  def load_current_user!
+    @current_user = User.find_by(id: payload[0]['user_id'])
+    Rails.logger.info(@current_user)
   end
 end
